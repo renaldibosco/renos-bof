@@ -105,9 +105,9 @@ object Engine {
             )
             val dayStartT = cs[range.first].t
             val orb = range.filter { cs[it].t < dayStartT + 15 * 60 }
-            if (orb.isNotEmpty() && orb.last < range.last) {
-                levels.add(Level("ORH", orb.maxOf { cs[it].h }, orb.last + 1))
-                levels.add(Level("ORL", orb.minOf { cs[it].l }, orb.last + 1))
+            if (orb.isNotEmpty() && orb.last() < range.last) {
+                levels.add(Level("ORH", orb.maxOf { cs[it].h }, orb.last() + 1))
+                levels.add(Level("ORL", orb.minOf { cs[it].l }, orb.last() + 1))
             }
             if (d == days.lastIndex) todayLevels = levels
             val h4 = levels[2].price
