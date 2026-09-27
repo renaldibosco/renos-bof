@@ -23,7 +23,10 @@
   .pill.live::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;
     background:var(--bull);margin-right:6px;animation:blink 1.2s infinite}
   @keyframes blink{50%{opacity:.2}}
-  .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:14px}
+  .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+  .tabs.fx{grid-template-columns:repeat(3,1fr)}
+  .mkt{display:flex;margin-top:14px}
+  .mkt button{flex:1}
   .tab{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 4px;
     text-align:center;font-size:12px;font-weight:700;color:var(--mute);position:relative}
   .tab.on{border-color:var(--gold);color:var(--text);background:var(--card2)}
@@ -97,6 +100,7 @@
     <div id="status" class="pill">…</div>
   </header>
 
+  <div class="seg mkt" id="mkt"><button data-m="in" class="on">🇮🇳 India</button><button data-m="fx">🌍 Forex</button></div>
   <div class="tabs" id="tabs"></div>
 
   <div class="quote">
@@ -119,8 +123,12 @@
   <h2>Alerts</h2>
   <div class="card">
     <div class="row">
-      <label>Phone alerts<small>Scans every minute in market hours, even when the app is closed</small></label>
+      <label>Phone alerts<small>Indian markets, every minute 9:15–3:30, even when the app is closed</small></label>
       <button class="sw" id="alertSw" aria-label="Alerts"></button>
+    </div>
+    <div class="row">
+      <label>Forex alerts too<small>Gold, BTC and pairs, 24×5. Uses more battery</small></label>
+      <button class="sw" id="fxSw" aria-label="Forex alerts"></button>
     </div>
     <div class="row">
       <label>Alert when score is</label>
@@ -135,7 +143,7 @@
   </div>
 
   <div class="foot">
-    Data: Yahoo Finance (can lag up to ~1 min). Crude = NYMEX WTI (CL).<br>
+    Data: Yahoo Finance (can lag up to ~1 min). Crude = NYMEX WTI (CL). XAUUSD = COMEX gold futures (GC), may lag ~10 min.<br>
     A data tool, not investment advice. Charts by TradingView Lightweight Charts™.<br>
     Reno's BOF · by Pablo Reinaldez
   </div>
@@ -143,8 +151,11 @@
 
 <script src="lwc.js"></script>
 <script>
-const SYMS = ["NIFTY","BANKNIFTY","SENSEX","CRUDE"];
-const LABEL = {NIFTY:"NIFTY 50",BANKNIFTY:"BANK NIFTY",SENSEX:"SENSEX",CRUDE:"CRUDE"};
+const GROUPS = { in: ["NIFTY","BANKNIFTY","SENSEX","CRUDE"], fx: ["GOLD","BTC","EURUSD","GBPUSD","USDJPY","USDINR"] };
+let mkt = "in";
+let SYMS = GROUPS.in;
+const LABEL = {NIFTY:"NIFTY 50",BANKNIFTY:"BANK NIFTY",SENSEX:"SENSEX",CRUDE:"CRUDE",
+  GOLD:"XAUUSD",BTC:"BTCUSD",EURUSD:"EURUSD",GBPUSD:"GBPUSD",USDJPY:"USDJPY",USDINR:"USDINR"};
 const hasBridge = typeof Android !== "undefined";
 let cur = "NIFTY", tf = "5m", lastData = null, timer = null, firstFit = true;
 const best = {};
@@ -178,7 +189,7 @@ const vwapLine = chart.addLineSeries({ color:"#F5C451", lineWidth:1, priceLineVi
 let priceLines = [];
 const LVL_COLOR = {PDH:"#EF4444",PDL:"#22C55E",H4:"#F472B6",L4:"#34D399",H3:"#C084FC",L3:"#60A5FA",ORH:"#FB923C",ORL:"#2DD4BF"};
 
-function digits(p){ return Math.abs(p) < 1000 ? 2 : 1; }
+function digits(p){ const a = Math.abs(p); return a < 10 ? 5 : a < 200 ? 3 : a < 1000 ? 2 : 1; }
 function fmt(p){ return p == null ? "—" : Number(p).toLocaleString("en-IN",{minimumFractionDigits:digits(p),maximumFractionDigits:digits(p)}); }
 function hhmm(t){ const d = new Date(t*1000); return String(d.getUTCHours()).padStart(2,"0")+":"+String(d.getUTCMinutes()).padStart(2,"0"); }
 function dayStr(t){ const d = new Date(t*1000); return d.getUTCDate()+" "+["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getUTCMonth()]; }
@@ -191,7 +202,7 @@ function render(d){
   lastData = d;
 
   const prec = digits(d.price);
-  candles.applyOptions({ priceFormat: { type:"price", precision: prec, minMove: prec === 2 ? 0.01 : 0.1 } });
+  candles.applyOptions({ priceFormat: { type:"price", precision: prec, minMove: Math.pow(10, -prec) } });
   candles.setData(d.candles);
   vwapLine.setData(d.vwap);
   priceLines.forEach(p => candles.removePriceLine(p)); priceLines = [];
@@ -260,7 +271,9 @@ function focusTime(t){
 
 /* ---------- tabs ---------- */
 function drawTabs(){
-  document.getElementById("tabs").innerHTML = SYMS.map(s => {
+  const tabsEl = document.getElementById("tabs");
+  tabsEl.classList.toggle("fx", mkt === "fx");
+  tabsEl.innerHTML = SYMS.map(s => {
     const b = best[s];
     const txt = b == null ? "…" : b === 0 ? "no BOF" : "best " + b + "/6";
     return `<div class="tab${s===cur?" on":""}" data-s="${s}">${LABEL[s]}<span class="b${b>=4?" hot":""}">${txt}</span></div>`;
@@ -274,6 +287,13 @@ function setBadge(name, todaySigs){
   best[name] = todaySigs.reduce((m, s) => Math.max(m, s.score), 0);
   drawTabs();
 }
+
+document.querySelectorAll("#mkt button").forEach(b => b.onclick = () => {
+  if (b.dataset.m === mkt) return;
+  mkt = b.dataset.m; SYMS = GROUPS[mkt]; cur = SYMS[0]; firstFit = true;
+  document.querySelectorAll("#mkt button").forEach(x => x.classList.toggle("on", x === b));
+  drawTabs(); refresh(true).then(loadBadges);
+});
 
 document.querySelectorAll("#tfs button").forEach(b => b.onclick = () => {
   tf = b.dataset.tf; firstFit = true;
@@ -298,7 +318,7 @@ async function refresh(showLoading){
 }
 
 async function loadBadges(){
-  for (const s of SYMS){
+  for (const s of SYMS.slice()){
     if (s === cur) continue;
     const d = await load(s, "5m");
     if (!d.error && d.signals) setBadge(s, d.signals.filter(x => x.today));
@@ -307,9 +327,12 @@ async function loadBadges(){
 
 /* ---------- alerts ---------- */
 const sw = document.getElementById("alertSw");
+const fxSw = document.getElementById("fxSw");
+fxSw.onclick = () => { if (!hasBridge) return; Android.setForexAlerts(!Android.forexAlertsOn()); syncAlerts(); };
 function syncAlerts(){
   if (!hasBridge) return;
   sw.classList.toggle("on", Android.alertsOn());
+  fxSw.classList.toggle("on", Android.forexAlertsOn());
   const n = Android.threshold();
   document.querySelectorAll("#thr button").forEach(b => b.classList.toggle("on", +b.dataset.n === n));
 }

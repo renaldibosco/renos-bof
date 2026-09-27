@@ -14,7 +14,6 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import kotlin.math.abs
 
 object Prefs {
     private fun sp(c: Context) = c.getSharedPreferences("bof", Context.MODE_PRIVATE)
@@ -22,6 +21,8 @@ object Prefs {
     fun setAlerts(c: Context, on: Boolean) = sp(c).edit().putBoolean("alerts", on).apply()
     fun threshold(c: Context) = sp(c).getInt("threshold", 4)
     fun setThreshold(c: Context, n: Int) = sp(c).edit().putInt("threshold", n).apply()
+    fun forexAlerts(c: Context) = sp(c).getBoolean("forexAlerts", false)
+    fun setForexAlerts(c: Context, on: Boolean) = sp(c).edit().putBoolean("forexAlerts", on).apply()
     fun wasNotified(c: Context, key: String) = sp(c).getStringSet("sent", emptySet())!!.contains(key)
     fun markNotified(c: Context, key: String) {
         val set = HashSet(sp(c).getStringSet("sent", emptySet())!!)
@@ -112,8 +113,10 @@ class ScannerService : Service() {
             var status = ""
             try {
                 val tf = Market.timeframes.getValue("5m")
+                val forexOn = Prefs.forexAlerts(this)
                 for ((name, sym) in Market.symbols) {
                     if (!running) break
+                    if (name in Market.forex && !forexOn) continue
                     val s = Market.fetch(sym, tf.interval, tf.range)
                     if (!s.open) continue
                     anyOpen = true
@@ -130,7 +133,7 @@ class ScannerService : Service() {
                     }
                 }
                 status = if (anyOpen) "Watching live · alerts at ${Prefs.threshold(this)}+/6"
-                else "Markets closed · waiting for 9:15 AM"
+                else if (forexOn) "Markets closed · waiting" else "Markets closed · waiting for 9:15 AM"
             } catch (e: Exception) {
                 status = "Network issue, retrying…"
             }
@@ -148,7 +151,7 @@ class ScannerService : Service() {
         val dir = if (g.bullish) "🟢 BULLISH" else "🔴 BEARISH"
         val nuclear = if (g.score == 6) "☢️ NUCLEAR " else ""
         val title = "$nuclear$name $dir BOF · ${g.score}/6"
-        val digits = if (abs(g.entry) < 1000) 2 else 1
+        val digits = Market.digits(g.entry)
         fun f(x: Double) = String.format("%.${digits}f", x)
         val text = "Failed ${g.level.name} ${f(g.level.price)} · Entry ${f(g.entry)} · SL ${f(g.stop)} · Target ${f(g.target)}"
         return Notification.Builder(this, CH_ALERT)

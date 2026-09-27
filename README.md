@@ -5,6 +5,7 @@ Live **Breakout Failure (BOF)** scanner for Android: Nifty 50, Bank Nifty, Sense
 **Download:** https://github.com/renaldibosco/renos-bof/releases/latest/download/RenosBOF.apk
 
 ## What it does
+- **India:** Nifty 50, Bank Nifty, Sensex, Crude. **Forex:** XAUUSD, BTCUSD, EURUSD, GBPUSD, USDJPY, USDINR.
 - Pulls live 1m / 5m / 15m candles and draws them on a TradingView-style chart
   (TradingView Lightweight Charts™).
 - Draws the key levels: **PDH / PDL**, **Camarilla H3 H4 L3 L4**, **opening range (first 15 min)**, plus **VWAP**.

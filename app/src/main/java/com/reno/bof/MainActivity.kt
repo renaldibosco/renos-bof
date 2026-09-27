@@ -102,6 +102,12 @@ class MainActivity : Activity() {
         fun setThreshold(n: Int) = Prefs.setThreshold(this@MainActivity, n)
 
         @JavascriptInterface
+        fun forexAlertsOn(): Boolean = Prefs.forexAlerts(this@MainActivity)
+
+        @JavascriptInterface
+        fun setForexAlerts(on: Boolean) = Prefs.setForexAlerts(this@MainActivity, on)
+
+        @JavascriptInterface
         fun batterySettings() {
             runOnUiThread {
                 try {

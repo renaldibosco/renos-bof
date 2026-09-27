@@ -24,8 +24,28 @@ object Market {
         "NIFTY" to "^NSEI",
         "BANKNIFTY" to "^NSEBANK",
         "SENSEX" to "^BSESN",
-        "CRUDE" to "CL=F"
+        "CRUDE" to "CL=F",
+        // Forex / global (24x5, BTC 24x7)
+        "GOLD" to "GC=F",
+        "BTC" to "BTC-USD",
+        "EURUSD" to "EURUSD=X",
+        "GBPUSD" to "GBPUSD=X",
+        "USDJPY" to "JPY=X",
+        "USDINR" to "INR=X"
     )
+
+    val forex = setOf("GOLD", "BTC", "EURUSD", "GBPUSD", "USDJPY", "USDINR")
+
+    /** Decimal places that make sense for a price (1.0845 vs 25,845.5). */
+    fun digits(p: Double): Int {
+        val a = kotlin.math.abs(p)
+        return when {
+            a < 10 -> 5
+            a < 200 -> 3
+            a < 1000 -> 2
+            else -> 1
+        }
+    }
 
     /** Timeframe -> (interval, range, higher-timeframe interval, seconds) */
     data class Tf(val interval: String, val range: String, val htf: String, val seconds: Long)
