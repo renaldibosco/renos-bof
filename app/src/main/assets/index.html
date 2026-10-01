@@ -222,7 +222,8 @@ function render(d){
   const ch = d.price - d.prevClose, pct = d.prevClose ? ch / d.prevClose * 100 : 0;
   document.getElementById("price").textContent = fmt(d.price);
   const c = document.getElementById("chg");
-  c.textContent = (ch>=0?"▲ +":"▼ ") + fmt(ch) + " (" + (pct>=0?"+":"") + pct.toFixed(2) + "%)";
+  const fmtc = x => Number(x).toLocaleString("en-IN",{minimumFractionDigits:prec,maximumFractionDigits:prec});
+  c.textContent = (ch>=0?"▲ +":"▼ ") + fmtc(ch) + " (" + (pct>=0?"+":"") + pct.toFixed(2) + "%)";
   c.className = "chg " + (ch>=0?"up":"down");
   document.getElementById("upd").textContent = "Updated " + new Date(d.updated).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
   const st = document.getElementById("status");
