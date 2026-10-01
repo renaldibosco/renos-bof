@@ -1,0 +1,202 @@
+//@version=6
+// ─────────────────────────────────────────────────────────────
+//  Reno's BOF  ·  Breakout Failure scanner with 6-factor score
+//  by Pablo Reinaldez
+//
+//  BOF = price breaks a key level, then closes back on the other side.
+//    Bearish BOF: breaks ABOVE a level, closes back BELOW (trapped buyers)
+//    Bullish BOF: breaks BELOW a level, closes back ABOVE (trapped sellers)
+//
+//  Levels: PDH/PDL, Camarilla H3/H4/L3/L4, opening range, swing high/low
+//  Score (0-6):
+//    1 Higher timeframe rejected the level
+//    2 Weak breakout (low volume, or < 0.5 ATR push when no volume)
+//    3 RSI divergence / extreme
+//    4 Rejection candle
+//    5 VWAP rejection
+//    6 Camarilla H4/L4 failure
+//
+//  Alerts: create an alert on this indicator → "Any alert() function call".
+//  A data tool, not investment advice.
+// ─────────────────────────────────────────────────────────────
+indicator("Reno's BOF", overlay = true, max_labels_count = 500, max_bars_back = 500)
+
+// ── Inputs ──
+minScore = input.int(4, "Alert when score ≥", minval = 1, maxval = 6)
+htfTf    = input.timeframe("15", "Higher timeframe (factor 1)")
+orMins   = input.int(15, "Opening range minutes", minval = 1)
+tolPct   = input.float(0.02, "Break tolerance %", step = 0.01) / 100
+cooldown = input.int(6, "Bars between signals (same side)", minval = 1)
+showLvls = input.bool(true, "Show levels")
+showVwap = input.bool(true, "Show VWAP")
+
+// ── Previous day levels + Camarilla ──
+[pH, pL, pC] = request.security(syminfo.tickerid, "D", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+rng = pH - pL
+h4 = pC + rng * 1.1 / 2
+l4 = pC - rng * 1.1 / 2
+h3 = pC + rng * 1.1 / 4
+l3 = pC - rng * 1.1 / 4
+
+// ── Opening range ──
+newDay = timeframe.change("D")
+var float orH = na
+var float orL = na
+var int dayStart = na
+var bool orDone = false
+if newDay
+    dayStart := time
+    orH := high
+    orL := low
+    orDone := false
+else if not orDone and not na(dayStart)
+    if time - dayStart < orMins * 60000
+        orH := math.max(orH, high)
+        orL := math.min(orL, low)
+    else
+        orDone := true
+
+// ── VWAP (time-weighted when the symbol has no volume, e.g. NSE indices) ──
+var float twSum = 0.0
+var int twN = 0
+if newDay
+    twSum := 0.0
+    twN := 0
+twSum += hlc3
+twN += 1
+hasVol   = ta.cum(nz(volume)) > 0
+vwapRaw  = ta.vwap(hlc3)
+vw       = hasVol and not na(vwapRaw) ? vwapRaw : twSum / math.max(twN, 1)
+
+// ── Indicators ──
+rsi    = ta.rsi(close, 14)
+atr    = ta.atr(14)
+volAvg = ta.sma(nz(volume), 20)
+swingH = ta.highest(high, 28)[3]
+swingL = ta.lowest(low, 28)[3]
+low3   = ta.lowest(low, 3)
+high3  = ta.highest(high, 3)
+[hH, hL, hC] = request.security(syminfo.tickerid, htfTf, [high, low, close])
+
+// ── BOF detection: returns breakout bar offset (0 = this bar) or -1 ──
+f_detect(float L, bool bull) =>
+    int bo = -1
+    if not bull
+        if high > L * (1 + tolPct) and close < L and close[1] < L
+            bo := 0
+        else if close < L
+            for k = 1 to 3
+                if close[k + 1] <= L and close[k] > L * (1 + tolPct / 2)
+                    bool held = true
+                    for m = 1 to k
+                        if close[m] <= L
+                            held := false
+                    if held
+                        bo := k
+                        break
+    else
+        if low < L * (1 - tolPct) and close > L and close[1] > L
+            bo := 0
+        else if close > L
+            for k = 1 to 3
+                if close[k + 1] >= L and close[k] < L * (1 - tolPct / 2)
+                    bool held = true
+                    for m = 1 to k
+                        if close[m] >= L
+                            held := false
+                    if held
+                        bo := k
+                        break
+    bo
+
+// ── 6-factor score ──
+f_score(float L, bool bull, int bo, string name) =>
+    float ext = bull ? low : high
+    int extI = 0
+    for k = 0 to bo
+        if not bull and high[k] > ext
+            ext := high[k]
+            extI := k
+        if bull and low[k] < ext
+            ext := low[k]
+            extI := k
+    bool f1 = bull ? (hL < L and hC > L) : (hH > L and hC < L)
+    bool f2 = hasVol ? (nz(volume[bo]) < volAvg[bo + 1]) : (math.abs(ext - L) < 0.5 * atr)
+    bool f3 = bull ? rsi[extI] <= 30 : rsi[extI] >= 70
+    if not f3
+        int p = extI + 3
+        for k = extI + 3 to extI + 30
+            if not bull and high[k] > high[p]
+                p := k
+            if bull and low[k] < low[p]
+                p := k
+        f3 := bull ? (low[extI] <= low[p] and rsi[extI] > rsi[p] + 1) : (high[extI] >= high[p] and rsi[extI] < rsi[p] - 1)
+    float body = math.abs(close - open)
+    float rg = high - low
+    float wick = bull ? math.min(open, close) - low : high - math.max(open, close)
+    bool strong = bull ? close > open : close < open
+    bool f4 = rg > 0 and ((wick >= 0.5 * rg and wick >= 1.5 * body) or (strong and body >= 0.6 * rg))
+    bool f5 = bull ? (close > vw and low3 <= vw * 1.0005) : (close < vw and high3 >= vw * 0.9995)
+    bool f6 = bull ? (name == "L3" or name == "L4" or (ext < l4 and close > l4)) : (name == "H3" or name == "H4" or (ext > h4 and close < h4))
+    int sc = (f1 ? 1 : 0) + (f2 ? 1 : 0) + (f3 ? 1 : 0) + (f4 ? 1 : 0) + (f5 ? 1 : 0) + (f6 ? 1 : 0)
+    [sc, ext, f1, f2, f3, f4, f5, f6]
+
+// ── Scan all levels, keep best bull + best bear ──
+names = array.from("PDH", "PDL", "H4", "L4", "H3", "L3", "ORH", "ORL", "Swing H", "Swing L")
+lv    = array.from(pH, pL, h4, l4, h3, l3, orDone ? orH : na, orDone ? orL : na, swingH, swingL)
+
+f_ck(bool b) => b ? "✅ " : "▫️ "
+f_px(float x) => str.tostring(x, format.mintick)
+
+var int lastBull = -1000
+var int lastBear = -1000
+
+for d = 0 to 1
+    bool bull = d == 1
+    int bestSc = -1
+    float bestExt = na
+    string bestName = ""
+    float bestL = na
+    string facts = ""
+    for i = 0 to 9
+        float L = array.get(lv, i)
+        string nm = array.get(names, i)
+        if na(L) or (nm == "Swing H" and bull) or (nm == "Swing L" and not bull)
+            continue
+        int bo = f_detect(L, bull)
+        if bo >= 0
+            [sc, ext, a1, a2, a3, a4, a5, a6] = f_score(L, bull, bo, nm)
+            if sc > bestSc
+                bestSc := sc
+                bestExt := ext
+                bestName := nm
+                bestL := L
+                facts := f_ck(a1) + "Higher TF rejected\n" + f_ck(a2) + (hasVol ? "Weak breakout volume\n" : "Weak breakout push\n") + f_ck(a3) + "RSI divergence / extreme\n" + f_ck(a4) + "Rejection candle\n" + f_ck(a5) + "VWAP rejection\n" + f_ck(a6) + "Camarilla H4/L4 failure"
+    int last = bull ? lastBull : lastBear
+    if bestSc >= 0 and barstate.isconfirmed and bar_index - last >= cooldown
+        if bull
+            lastBull := bar_index
+        else
+            lastBear := bar_index
+        float entry = close
+        float stop = bull ? bestExt - 0.1 * atr : bestExt + 0.1 * atr
+        float risk = math.abs(entry - stop)
+        float tgt = bull ? entry + 2 * risk : entry - 2 * risk
+        string dir = bull ? "BULLISH" : "BEARISH"
+        string txt = (bestSc == 6 ? "☢ " : "") + "BOF " + str.tostring(bestSc)
+        string tip = dir + " BOF at " + bestName + " " + f_px(bestL) + "\nScore " + str.tostring(bestSc) + "/6\n\n" + facts + "\n\nEntry " + f_px(entry) + "\nStop " + f_px(stop) + "\nTarget 1:2 " + f_px(tgt)
+        color c = bull ? color.new(#22C55E, 0) : color.new(#EF4444, 0)
+        label.new(bar_index, bull ? low : high, txt, style = bull ? label.style_label_up : label.style_label_down, color = bestSc >= minScore ? #F5C451 : c, textcolor = bestSc >= minScore ? #1A1200 : color.white, size = size.small, tooltip = tip)
+        if bestSc >= minScore
+            alert((bestSc == 6 ? "☢️ NUCLEAR " : "") + syminfo.ticker + " " + dir + " BOF " + str.tostring(bestSc) + "/6 · failed " + bestName + " " + f_px(bestL) + " · Entry " + f_px(entry) + " · SL " + f_px(stop) + " · Target " + f_px(tgt), alert.freq_once_per_bar_close)
+
+// ── Plots ──
+plot(showLvls ? pH : na, "PDH", color.new(#EF4444, 20), 1, plot.style_stepline)
+plot(showLvls ? pL : na, "PDL", color.new(#22C55E, 20), 1, plot.style_stepline)
+plot(showLvls ? h4 : na, "H4", color.new(#F472B6, 30), 1, plot.style_stepline)
+plot(showLvls ? l4 : na, "L4", color.new(#34D399, 30), 1, plot.style_stepline)
+plot(showLvls ? h3 : na, "H3", color.new(#C084FC, 40), 1, plot.style_stepline)
+plot(showLvls ? l3 : na, "L3", color.new(#60A5FA, 40), 1, plot.style_stepline)
+plot(showLvls and orDone ? orH : na, "ORH", color.new(#FB923C, 30), 1, plot.style_linebr)
+plot(showLvls and orDone ? orL : na, "ORL", color.new(#2DD4BF, 30), 1, plot.style_linebr)
+plot(showVwap ? vw : na, "VWAP", color.new(#F5C451, 0), 2)
