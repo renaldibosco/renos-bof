@@ -64,9 +64,15 @@ class MainActivity : Activity() {
     private fun build(name: String, tf: String): String {
         val sym = Market.symbols[name] ?: throw Exception("Unknown symbol")
         val t = Market.timeframes[tf] ?: Market.timeframes.getValue("5m")
-        val s = Market.fetch(sym, t.interval, t.range)
-        val htf = try { Market.fetch(sym, t.htf, t.range) } catch (e: Exception) { null }
-        return Engine.toJson(name, tf, Engine.analyze(s, htf))
+        val crypto = Live.isCrypto(name)
+        val raw = (if (crypto) Live.cryptoSeries(name, t.interval) else null) ?: Market.fetch(sym, t.interval, t.range)
+        val (s, live) = Live.patch(name, raw, t.seconds)
+        val htfRaw = try {
+            (if (crypto) Live.cryptoSeries(name, t.htf) else null) ?: Market.fetch(sym, t.htf, t.range)
+        } catch (e: Exception) { null }
+        val htfSec = when (t.htf) { "5m" -> 300L; "15m" -> 900L; else -> 3600L }
+        val htf = htfRaw?.let { Live.patch(name, it, htfSec).first }
+        return Engine.toJson(name, tf, Engine.analyze(s, htf), live)
     }
 
     inner class Bridge {
@@ -79,6 +85,15 @@ class MainActivity : Activity() {
                     JSONObject().put("error", e.message ?: "No internet").toString()
                 }
                 web.post { web.evaluateJavascript("window.onData(${JSONObject.quote(cb)}, $json)", null) }
+            }.start()
+        }
+
+        @JavascriptInterface
+        fun tick(name: String, cb: String) {
+            Thread {
+                val p = Live.spot(name)
+                val js = if (p == null) "null" else p.toString()
+                web.post { web.evaluateJavascript("window.onTick(${JSONObject.quote(cb)}, $js)", null) }
             }.start()
         }
 

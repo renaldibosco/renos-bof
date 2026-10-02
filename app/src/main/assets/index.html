@@ -20,6 +20,10 @@
   .pill{margin-left:auto;font-size:11px;font-weight:700;padding:5px 10px;border-radius:99px;
     background:#241a38;color:var(--mute);letter-spacing:.6px}
   .pill.live{background:rgba(34,197,94,.15);color:var(--bull)}
+  .pill.rt{background:rgba(245,196,81,.16);color:var(--gold)}
+  .flash-up{color:var(--bull)!important} .flash-dn{color:var(--bear)!important}
+  .mini{font-size:11px;font-weight:700;padding:4px 9px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--mute);margin-left:auto}
+  .mini.on{border-color:var(--gold);color:var(--gold)}
   .pill.live::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;
     background:var(--bull);margin-right:6px;animation:blink 1.2s infinite}
   @keyframes blink{50%{opacity:.2}}
@@ -117,7 +121,7 @@
   <div id="chart"><div class="msg" id="msg">Loading live market…</div></div>
   <div class="levels" id="levels"></div>
 
-  <h2>BOF signals <small id="sigcount"></small></h2>
+  <h2>BOF signals <small id="sigcount"></small><button class="mini" id="showAll">Showing 4+</button></h2>
   <div id="signals"></div>
 
   <h2>Alerts</h2>
@@ -143,7 +147,7 @@
   </div>
 
   <div class="foot">
-    Data: Yahoo Finance (can lag up to ~1 min). Crude = NYMEX WTI (CL). XAUUSD = COMEX gold futures (GC), may lag ~10 min.<br>
+    ⚡ Real-time: NSE/BSE indices (Yahoo live price), gold &amp; forex (Swissquote spot), BTC (Binance). Crude = NYMEX WTI futures, ~10 min delayed.<br>
     A data tool, not investment advice. Charts by TradingView Lightweight Charts™.<br>
     Reno's BOF · by Pablo Reinaldez
   </div>
@@ -159,6 +163,45 @@ const LABEL = {NIFTY:"NIFTY 50",BANKNIFTY:"BANK NIFTY",SENSEX:"SENSEX",CRUDE:"CR
 const hasBridge = typeof Android !== "undefined";
 let cur = "NIFTY", tf = "5m", lastData = null, timer = null, firstFit = true;
 const best = {};
+let showAll = false;
+try { showAll = localStorage.getItem("showAll") === "1"; } catch(e){}
+document.getElementById("showAll").onclick = () => {
+  showAll = !showAll; try { localStorage.setItem("showAll", showAll ? "1" : "0"); } catch(e){}
+  if (lastData) render(lastData);
+};
+
+/* ---------- real-time ticks ---------- */
+const TF_SEC = {"1m":60, "5m":300, "15m":900};
+const tcbs = {}; let tseq = 0, ticking = false;
+window.onTick = (id, p) => { const f = tcbs[id]; delete tcbs[id]; if (f) f(p); };
+function applyTick(p){
+  if (p == null || !lastData || !lastData.candles.length) return;
+  const arr = lastData.candles, tfSec = TF_SEC[tf] || 300;
+  const start = Math.floor(Date.now() / 1000 / tfSec) * tfSec + 19800;
+  let last = arr[arr.length - 1];
+  if (start <= last.time){ last.high = Math.max(last.high, p); last.low = Math.min(last.low, p); last.close = p; }
+  else { last = {time:start, open:last.close, high:Math.max(last.close,p), low:Math.min(last.close,p), close:p}; arr.push(last); }
+  candles.update(last);
+  const prev = lastData.price; lastData.price = p;
+  const pe = document.getElementById("price");
+  pe.textContent = fmt(p);
+  pe.classList.remove("flash-up","flash-dn");
+  if (p !== prev){ pe.classList.add(p > prev ? "flash-up" : "flash-dn"); setTimeout(() => pe.classList.remove("flash-up","flash-dn"), 600); }
+  const prec = digits(p), ch = p - lastData.prevClose, pct = lastData.prevClose ? ch / lastData.prevClose * 100 : 0;
+  const fmtc = x => Number(x).toLocaleString("en-IN",{minimumFractionDigits:prec,maximumFractionDigits:prec});
+  const c = document.getElementById("chg");
+  c.textContent = (ch>=0?"▲ +":"▼ ") + fmtc(ch) + " (" + (pct>=0?"+":"") + pct.toFixed(2) + "%)";
+  c.className = "chg " + (ch>=0?"up":"down");
+  document.getElementById("upd").textContent = "Live " + new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+}
+setInterval(() => {
+  if (!hasBridge || ticking || document.hidden || !lastData || !lastData.live) return;
+  ticking = true;
+  const name = lastData.name, id = "t" + (++tseq);
+  tcbs[id] = p => { ticking = false; if (lastData && lastData.name === name) applyTick(p); };
+  Android.tick(name, id);
+  setTimeout(() => { if (tcbs[id]) { delete tcbs[id]; ticking = false; } }, 8000);
+}, 3000);
 
 /* ---------- bridge ---------- */
 const cbs = {}; let seq = 0;
@@ -208,7 +251,9 @@ function render(d){
   priceLines.forEach(p => candles.removePriceLine(p)); priceLines = [];
   d.levels.forEach(l => priceLines.push(candles.createPriceLine({
     price:l.price, color:LVL_COLOR[l.name]||"#888", lineWidth:1, lineStyle:2, axisLabelVisible:true, title:l.name })));
-  candles.setMarkers(d.signals.map(s => ({
+  const thr = hasBridge ? Android.threshold() : 4;
+  const vis = d.signals.filter(s => showAll || s.score >= thr);
+  candles.setMarkers(vis.map(s => ({
     time:s.time, position:s.bull?"belowBar":"aboveBar", color:s.bull?"#22C55E":"#EF4444",
     shape:s.bull?"arrowUp":"arrowDown", text:(s.score===6?"☢ ":"")+"BOF "+s.score
   })));
@@ -227,7 +272,8 @@ function render(d){
   c.className = "chg " + (ch>=0?"up":"down");
   document.getElementById("upd").textContent = "Updated " + new Date(d.updated).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
   const st = document.getElementById("status");
-  st.textContent = d.open ? "LIVE" : "CLOSED"; st.className = "pill" + (d.open ? " live" : "");
+  st.textContent = d.live ? "⚡ REAL-TIME" : d.open ? "DELAYED" : "CLOSED";
+  st.className = "pill" + (d.live ? " rt" : d.open ? " live" : "");
 
   // levels
   document.getElementById("levels").innerHTML = d.levels.map(l =>
@@ -235,8 +281,10 @@ function render(d){
     + `<span class="chip" style="border-color:#F5C45155">VWAP <b>${d.vwap.length?fmt(d.vwap[d.vwap.length-1].value):"—"}</b></span>`;
 
   // signals
-  const today = d.signals.filter(s => s.today).reverse();
-  const older = d.signals.filter(s => !s.today).reverse().slice(0, 6);
+  const today = vis.filter(s => s.today).reverse();
+  const older = vis.filter(s => !s.today).reverse().slice(0, 6);
+  document.getElementById("showAll").textContent = showAll ? "Showing all" : "Showing " + thr + "+";
+  document.getElementById("showAll").classList.toggle("on", !showAll);
   document.getElementById("sigcount").textContent = today.length + " today";
   const card = s => {
     const lvl = s.score >= 4 ? " hot" : "";
@@ -315,7 +363,7 @@ async function refresh(showLoading){
     if (want === cur + tf) render(d); else return refresh(true);
   }
   const open = lastData && lastData.open;
-  timer = setTimeout(() => refresh(false), open ? 30000 : 300000);
+  timer = setTimeout(() => refresh(false), lastData && lastData.live ? 20000 : open ? 30000 : 300000);
 }
 
 async function loadBadges(){
@@ -338,7 +386,7 @@ function syncAlerts(){
   document.querySelectorAll("#thr button").forEach(b => b.classList.toggle("on", +b.dataset.n === n));
 }
 sw.onclick = () => { if (!hasBridge) return; Android.setAlerts(!Android.alertsOn()); syncAlerts(); };
-document.querySelectorAll("#thr button").forEach(b => b.onclick = () => { if (hasBridge){ Android.setThreshold(+b.dataset.n); syncAlerts(); } });
+document.querySelectorAll("#thr button").forEach(b => b.onclick = () => { if (hasBridge){ Android.setThreshold(+b.dataset.n); syncAlerts(); if (lastData) render(lastData); } });
 document.getElementById("battery").onclick = () => hasBridge && Android.batterySettings();
 
 drawTabs(); syncAlerts();

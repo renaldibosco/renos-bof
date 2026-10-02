@@ -11,8 +11,8 @@ android {
         applicationId = "com.reno.bof"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
     }
 
     // One fixed key so every new version installs over the old one

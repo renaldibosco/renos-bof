@@ -306,11 +306,11 @@ object Engine {
     }
 
     /** Everything the screen needs, as JSON. */
-    fun toJson(name: String, tf: String, an: Analysis): String {
+    fun toJson(name: String, tf: String, an: Analysis, live: Boolean = false): String {
         val s = an.series
         val off = 19800L // show every chart in Indian time (IST)
         val root = JSONObject()
-        root.put("name", name).put("tf", tf).put("open", s.open).put("hasVolume", s.hasVolume)
+        root.put("name", name).put("tf", tf).put("open", s.open).put("hasVolume", s.hasVolume).put("live", live)
         val price = if (s.candles.isNotEmpty()) s.candles.last().c else s.price
         root.put("price", price)
         root.put("prevClose", an.prevClose)
